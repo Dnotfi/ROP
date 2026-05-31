@@ -1,0 +1,299 @@
+// ==UserScript==
+// @name         kauaun791 Bypass
+// @namespace    kauaun791bypasser
+// @version      1.1.1
+// @description  kauaun791 Bypass - auto redirect and copy URL for link shorteners
+// @author       kauaun791
+// @match        *://*.linkvertise.com/*
+// @match        *://*.direct-link.net/*
+// @match        *://*.link-target.net/*
+// @match        *://*.link-to.net/*
+// @match        *://*.link-center.net/*
+// @match        *://*.link-hub.net/*
+// @match        *://*.link-unlock.com/*
+// @match        *://*.sub4unlock.com/*
+// @match        *://*.sub2unlock.me/*
+// @match        *://*.ads.pandauth.com/*
+// @match        *://*.pandauth.com/*
+// @match        *://*.work.ink/*
+// @match        *://*.rinku.pro/*
+// @match        *://*.lockr.so/*
+// @match        *://*.linkunlocker.com/*
+// @grant        GM_setClipboard
+// @grant        GM_addStyle
+// @run-at       document-end
+// @updateURL    https://raw.githubusercontent.com/kauaun791/userscript/main/kauaun791-bypass.user.js
+// @downloadURL  https://raw.githubusercontent.com/kauaun791/userscript/main/kauaun791-bypass.user.js
+// @license      MIT
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    GM_addStyle(`
+        .k9-copy-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 999999;
+            background: #1e293b;
+            backdrop-filter: blur(8px);
+            border: 1px solid #3b82f6;
+            border-radius: 40px;
+            padding: 10px 18px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            color: #e2e8f0;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            transition: all 0.2s;
+        }
+        .k9-copy-btn:hover {
+            background: #3b82f6;
+            transform: scale(1.02);
+        }
+        .k9-toast {
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            z-index: 999999;
+            background: #0f172a;
+            backdrop-filter: blur(8px);
+            border-radius: 12px;
+            padding: 8px 16px;
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            animation: fadeOut 2s ease forwards;
+        }
+        .k9-toast.success {
+            border-left: 4px solid #4ade80;
+            color: #4ade80;
+        }
+        .k9-toast.error {
+            border-left: 4px solid #f87171;
+            color: #f87171;
+        }
+        .k9-status {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 999999;
+            background: #1e1a2f;
+            backdrop-filter: blur(8px);
+            border-radius: 40px;
+            padding: 6px 14px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #e2e8f0;
+            border: 1px solid #3b82f6;
+            pointer-events: none;
+        }
+        @keyframes fadeOut {
+            0% { opacity: 1; transform: translateY(0); }
+            70% { opacity: 1; }
+            100% { opacity: 0; transform: translateY(-20px); visibility: hidden; }
+        }
+    `);
+
+    function showToast(message, isSuccess) {
+        const toast = document.createElement('div');
+        toast.className = `k9-toast ${isSuccess ? 'success' : 'error'}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    }
+
+    function getDestinationUrl() {
+        let url = null;
+        const scripts = document.querySelectorAll('script');
+        for (const script of scripts) {
+            const content = script.textContent;
+            if (content) {
+                let match = content.match(/window\.location\s*=\s*["']([^"']+)["']/);
+                if (match) url = match[1];
+                match = content.match(/data-href=["']([^"']+)["']/);
+                if (match) url = match[1];
+                match = content.match(/"destinationUrl":"([^"]+)"/);
+                if (match) url = match[1];
+                match = content.match(/location\.href\s*=\s*["']([^"']+)["']/);
+                if (match) url = match[1];
+                match = content.match(/https?:\/\/[^\s"']+\.(com|net|org|io|me|co|gg)[^\s"']*/);
+                if (match && !match[0].includes(location.hostname)) url = match[0];
+            }
+        }
+        if (!url) {
+            const meta = document.querySelector('meta[property="og:url"]');
+            if (meta && meta.content && !meta.content.includes(location.hostname)) url = meta.content;
+        }
+        if (!url) {
+            const params = new URLSearchParams(window.location.search);
+            url = params.get('redirect') || params.get('url') || params.get('dest');
+        }
+        if (!url) {
+            const links = document.querySelectorAll('a[target="_blank"]');
+            for (const a of links) {
+                if (a.href && !a.href.includes(location.hostname)) {
+                    url = a.href;
+                    break;
+                }
+            }
+        }
+        return url;
+    }
+
+    function getRemainingSeconds() {
+        let seconds = 0;
+        const timers = document.querySelectorAll('.timer, .countdown, [class*="timer"], [class*="countdown"], .time-left, #timer');
+        for (const el of timers) {
+            const text = el.textContent.trim();
+            if (text) {
+                const match = text.match(/(\d+):(\d+)/);
+                if (match) {
+                    seconds = parseInt(match[1]) * 60 + parseInt(match[2]);
+                    break;
+                }
+                const match2 = text.match(/(\d+)\s*s/);
+                if (match2) {
+                    seconds = parseInt(match2[1]);
+                    break;
+                }
+                const match3 = text.match(/^\d+$/);
+                if (match3 && parseInt(match3[0]) < 300) {
+                    seconds = parseInt(match3[0]);
+                    break;
+                }
+            }
+        }
+        if (seconds === 0) {
+            const body = document.body.innerText;
+            const match = body.match(/wait\s*(\d+)/i);
+            if (match) seconds = parseInt(match[1]);
+        }
+        return seconds > 0 && seconds < 300 ? seconds : 0;
+    }
+
+    function tryClickContinue() {
+        const buttons = document.querySelectorAll('button, a, .btn, .button, [role="button"]');
+        for (const btn of buttons) {
+            const text = (btn.textContent || '').toLowerCase();
+            if ((text.includes('continue') || text.includes('next') || text.includes('submit') || text.includes('skip')) && !btn.disabled) {
+                btn.click();
+                updateStatus('Clicked continue');
+                return true;
+            }
+        }
+        return false;
+    }
+
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'k9-status';
+    statusDiv.textContent = 'Auto bypass: waiting...';
+    document.body.appendChild(statusDiv);
+
+    function updateStatus(msg, isError = false) {
+        statusDiv.textContent = msg;
+        statusDiv.style.borderColor = isError ? '#ef4444' : '#3b82f6';
+    }
+
+    async function copyDestination() {
+        const url = getDestinationUrl();
+        if (!url) {
+            showToast('❌ failed', false);
+            return;
+        }
+        try {
+            await GM_setClipboard(url, 'text');
+            showToast('✅ Copy', true);
+        } catch (err) {
+            showToast('❌ failed', false);
+        }
+    }
+
+    function startAutoBypass() {
+        const destUrl = getDestinationUrl();
+        let waitSec = getRemainingSeconds();
+
+        if (destUrl) {
+            updateStatus('Destination found');
+        } else {
+            updateStatus('No URL yet, retrying...', true);
+        }
+
+        if (waitSec > 0) {
+            updateStatus(`Waiting ${waitSec}s...`);
+            const timerElement = document.querySelector('.timer, .countdown, [class*="timer"], [class*="countdown"]');
+            if (timerElement) {
+                const observer = new MutationObserver(() => {
+                    const text = timerElement.textContent;
+                    if (text === '0' || text === '00:00' || text === '0s') {
+                        observer.disconnect();
+                        updateStatus('Timer finished');
+                        tryClickContinue();
+                        setTimeout(() => {
+                            const final = getDestinationUrl();
+                            if (final) {
+                                updateStatus('Redirecting...');
+                                window.location.href = final;
+                            } else {
+                                updateStatus('No redirect URL', true);
+                            }
+                        }, 500);
+                    }
+                });
+                observer.observe(timerElement, { childList: true, subtree: true, characterData: true });
+                setTimeout(() => {
+                    observer.disconnect();
+                    if (!window.location.href.includes('bypass')) {
+                        tryClickContinue();
+                        setTimeout(() => {
+                            const final = getDestinationUrl();
+                            if (final) window.location.href = final;
+                            else updateStatus('Timeout', true);
+                        }, 300);
+                    }
+                }, (waitSec + 2) * 1000);
+            } else {
+                setTimeout(() => {
+                    tryClickContinue();
+                    setTimeout(() => {
+                        const final = getDestinationUrl();
+                        if (final) window.location.href = final;
+                        else updateStatus('No URL', true);
+                    }, 500);
+                }, waitSec * 1000);
+            }
+        } else {
+            updateStatus('No timer, bypassing now...');
+            tryClickContinue();
+            setTimeout(() => {
+                const final = getDestinationUrl();
+                if (final) window.location.href = final;
+                else updateStatus('Failed', true);
+            }, 1000);
+        }
+    }
+
+    const copyBtn = document.createElement('div');
+    copyBtn.className = 'k9-copy-btn';
+    copyBtn.textContent = '📋 Copy URL';
+    copyBtn.onclick = copyDestination;
+    document.body.appendChild(copyBtn);
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startAutoBypass);
+    } else {
+        startAutoBypass();
+    }
+
+    const observer = new MutationObserver(() => {
+        const url = getDestinationUrl();
+        if (url && getRemainingSeconds() === 0 && !window.location.href.includes(url)) {
+            updateStatus('Destination ready, redirecting...');
+            window.location.href = url;
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+})();
